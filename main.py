@@ -12,9 +12,13 @@ from car import Car
 car = Car()
 car.start()
 
-car.forward(7)
-car.left(100)
 car.forward(2)
-car.right(100)
+car.left(90)
 car.forward(2)
+car.left(90)
+car.forward(2)
+car.left(90)
+car.forward(2)
+car.left(90)
+
 car.close()
