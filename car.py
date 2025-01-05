@@ -10,6 +10,11 @@ import threading
 import queue
 
 class Car:
+    CMD_MotorControl = 1
+    CMD_CarControl_TimeLimit = 2
+    CMD_Ultrasonic_Sensor = 21
+    CMD_Car_LeaveTheGround = 23
+
     def __init__(self):
         self.cmd_no = 0
         self.off = [0.007,  0.022,  0.091,  0.012, -0.011, -0.05]
@@ -17,7 +22,9 @@ class Car:
         self.port = 100
         self.keep_running = True
         self.commands = queue.Queue()
+        self.responses = {}
         self.start_time = datetime.datetime.now()
+        self.last_time = self.start_time
 
     def connect(self):
         self.log('Connect to {0}:{1}'.format(self.ip, self.port))
@@ -56,13 +63,13 @@ class Car:
 
                 # Receive Response - make sure we get a response before sending the next message
                 try:
-                    #data = data + self.sock.recv(1024).decode()
                     while not '}' in data:
                         data = data + self.sock.recv(1024).decode()
                     response = data[0:data.index('}') + 1]
                     data = data[data.index('}') + 1:len(data) - 1]
-                    self.log(f'Response: {response} data: {data}')
-                    self.process_response(response)
+                    if msg_env['msg'] != '{Heartbeat}':
+                        self.log(f'Response: {response}')
+                        self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
                 except Exception as ex:
                     self.log(f'Error: {ex}')
                     sys.exit()
@@ -90,56 +97,58 @@ class Car:
         else:
             res = int(res)
         return res
-
-    def forward(self, distance = 1, speed = 150):
+    
+    def send_command(self, description: str, msg: dict):
         self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 3, "D1": 3, "D2": speed}
-        self.commands.put({'log': 'forward', 'msg': msg})
-        time.sleep(0.3 * distance)
-        self.stop()
+        msg["H"] = str(self.cmd_no)
+        self.commands.put({'log': description, 'msg': msg})
+        self.wait_for_response(self.cmd_no)
 
-    def backward(self, distance = 1, speed = 150):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 3, "D1": 4, "D2": speed}
-        self.commands.put({'log': 'backward', 'msg': msg})
-        time.sleep(0.3 * distance)
-        self.stop()
+    def wait_for_response(self, command_no, timeout = 0.5):
+        start = datetime.datetime.now()
+        while command_no not in self.responses:
+            time.sleep(0.005)
+            if (datetime.datetime.now() - start).total_seconds() > timeout:
+                break
 
-    def left(self, angle = 90, speed = 150):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 3, "D1": 1, "D2": speed}
-        self.commands.put({'log': 'left', 'msg': msg})
-        time.sleep((0.35 / 90) * angle)
-        self.stop()
+    def forward(self, distance = 1, speed = 200):
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500}
+        self.send_command('forward', msg)
 
-    def right(self, angle = 90, speed = 150):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 3, "D1": 2, "D2": speed}
-        self.commands.put({'log': 'right', 'msg': msg})
-        time.sleep((0.35 / 90) * angle)
-        self.stop()
+    def backward(self, distance = 1, speed = 200):
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500}
+        self.send_command('backward', msg)
+
+    def left(self, angle = 90, speed = 123):
+        # 255 / 250ms also turns 90
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
+        self.send_command('left', msg)
+
+    def right(self, angle = 90, speed = 123):
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
+        self.send_command('right', msg)
 
     def stop(self):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 1, "D1": 0, "D2": 0, "D3": 1}
-        self.commands.put({'log': 'stop', 'msg': msg})
+        msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
+        self.send_command('stop', msg)
 
     def rotate_camera(self, angle = 150):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 5, "D1": 1, "D2": angle}
-        self.commands.put({'log': 'rotate_camera', 'msg': msg})
+        msg = {"N": 5, "D1": 1, "D2": angle}
+        self.send_command('rotate_camera', msg)
 
     def measure_dist(self):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 21, "D1": 2}
-        self.commands.put({'log': 'measure_dist', 'msg': msg})
+        msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}
+        self.send_command('measure_dist', msg)
 
     def check_off_ground(self):
-        self.cmd_no += 1
-        msg = {"H": str(self.cmd_no), "N": 23}
-        self.commands.put({'log': 'check_off_ground', 'msg': msg})
+        msg = {"N": self.CMD_Car_LeaveTheGround}
+        self.send_command('check_off_ground', msg)
 
     def log(self, msg):
-        delta = datetime.datetime.now() - self.start_time
-        log_time = int(delta.total_seconds() * 1000)
-        print(f"{log_time}: {msg}")
+        now = datetime.datetime.now()
+        total_delta = now - self.start_time
+        delta = now - self.last_time
+        log_time = int(total_delta.total_seconds() * 1000)
+        delta_time = int(delta.total_seconds() * 1000)
+        self.last_time = now
+        print(f"{log_time} ({delta_time}): {msg}")

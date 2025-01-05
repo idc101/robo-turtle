@@ -96,39 +96,39 @@ dist_min = 30
 cmd(car, do = 'rotate', at = 90)
 cmd(car, do = 'move', where = 'forward', at = speed)
 time.sleep(1)
-# while 1:
-#     start_time = time.time()
-#     # Check if car was lifted off the ground to interrupt the while loop
-#     if cmd(car, do = 'check'):
-#         break
-#     # Get MPU data and plot it
-#     mot = cmd(car, do = 'measure', what = 'motion')
-#     # Check distance to obstacle
-#     dist[0] = cmd(car, do = 'measure', what = 'distance')
-#     if dist[0] <= dist_min:
-#         # Detected an obstacle, stop
-#         cmd(car, do = 'stop')
-#         # Rotate ultrasonic unit right and left and measure distance
-#         found_dir = 0
-#         for i in range(1,3):
-#             cmd(car, do = 'rotate', at = ang[i])
-#             dist[i] = cmd(car, do = 'measure', what = 'distance')
-#             # Check measured distance
-#             if dist[i] > dist_min:
-#                 found_dir = 1
-#         # Rotate ultrasonic unit straight
-#         cmd(car, do = 'rotate', at = 90)
-#         # Choose new direction
-#         if ~found_dir:
-#             cmd(car, do = 'move', where = 'back', at = speed)
-#             time.sleep(0.3)
-#         if dist[1] > dist[2]:
-#             cmd(car, do = 'move', where = 'right', at = speed)
-#         else:
-#             cmd(car, do = 'move', where = 'left', at = speed)
-#         time.sleep(0.3)
-#     cmd(car, do = 'move', where = 'forward', at = speed)
-#     print("--- %s seconds ---" % (time.time() - start_time))
+while 1:
+    start_time = time.time()
+    # Check if car was lifted off the ground to interrupt the while loop
+    if cmd(car, do = 'check'):
+        break
+    # Get MPU data and plot it
+    mot = cmd(car, do = 'measure', what = 'motion')
+    # Check distance to obstacle
+    dist[0] = cmd(car, do = 'measure', what = 'distance')
+    if dist[0] <= dist_min:
+        # Detected an obstacle, stop
+        cmd(car, do = 'stop')
+        # Rotate ultrasonic unit right and left and measure distance
+        found_dir = 0
+        for i in range(1,3):
+            cmd(car, do = 'rotate', at = ang[i])
+            dist[i] = cmd(car, do = 'measure', what = 'distance')
+            # Check measured distance
+            if dist[i] > dist_min:
+                found_dir = 1
+        # Rotate ultrasonic unit straight
+        cmd(car, do = 'rotate', at = 90)
+        # Choose new direction
+        if ~found_dir:
+            cmd(car, do = 'move', where = 'back', at = speed)
+            time.sleep(0.3)
+        if dist[1] > dist[2]:
+            cmd(car, do = 'move', where = 'right', at = speed)
+        else:
+            cmd(car, do = 'move', where = 'left', at = speed)
+        time.sleep(0.3)
+    cmd(car, do = 'move', where = 'forward', at = speed)
+    print("--- %s seconds ---" % (time.time() - start_time))
 
 # Close socket
 car.close()
