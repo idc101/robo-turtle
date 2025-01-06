@@ -1,9 +1,10 @@
 import socket
-import socket
 import sys
 import json
 import re
-# import matplotlib.pyplot as plt
+import numpy as np
+import cv2
+from urllib.request import urlopen
 import time
 import datetime
 import threading
@@ -25,6 +26,7 @@ class Car:
         self.responses = {}
         self.start_time = datetime.datetime.now()
         self.last_time = self.start_time
+        self.dist_history = np.array([])
 
     def connect(self):
         self.log('Connect to {0}:{1}'.format(self.ip, self.port))
@@ -84,32 +86,22 @@ class Car:
     def process_response(self, res):
         if res == '{Heartbeat}':
             return 1
-        res = re.search('_(.*)}', res).group(1)
-        if res == 'ok' or res == 'true':
-            res = 1
-        elif res == 'false':
-            res = 0
-        # elif msg.get("N") == 6:
-        #     res = res.split(",")
-        #     res = [int(x)/16384 for x in res] # convert to units of g
-        #     res[2] = res[2] - 1 # subtract 1G from az
-        #     res = [round(res[i] - self.off[i], 4) for i in range(6)]
-        else:
-            res = int(res)
-        return res
+        return re.search('_(.*)}', res).group(1)
     
     def send_command(self, description: str, msg: dict):
         self.cmd_no += 1
         msg["H"] = str(self.cmd_no)
         self.commands.put({'log': description, 'msg': msg})
-        self.wait_for_response(self.cmd_no)
+        return self.wait_for_response(self.cmd_no)
 
     def wait_for_response(self, command_no, timeout = 0.5):
         start = datetime.datetime.now()
         while command_no not in self.responses:
             time.sleep(0.005)
             if (datetime.datetime.now() - start).total_seconds() > timeout:
-                break
+                return None
+        result = self.responses.pop(command_no, None)
+        return result
 
     def forward(self, distance = 1, speed = 200):
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500}
@@ -138,11 +130,23 @@ class Car:
 
     def measure_dist(self):
         msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}
-        self.send_command('measure_dist', msg)
+        dist = self.send_command('measure_dist', msg)
+        if dist:
+            dist_int = int(dist)
+            self.dist_history = np.append(self.dist_history, [dist_int])
+            if self.dist_history.size > 6:
+                self.dist_history = self.dist_history[-6:]
+            return dist_int
+        return None
 
     def check_off_ground(self):
         msg = {"N": self.CMD_Car_LeaveTheGround}
         self.send_command('check_off_ground', msg)
+
+    def capture_image(self):
+        cam = urlopen('http://192.168.4.1/capture')
+        img = cam.read()
+        return np.asarray(bytearray(img), dtype = 'uint8')
 
     def log(self, msg):
         now = datetime.datetime.now()

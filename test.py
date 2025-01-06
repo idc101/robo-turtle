@@ -1,11 +1,38 @@
+### Copyright Michael@bots4all
+#%% Load modules
+from IPython import get_ipython
+import numpy as np
+import cv2 as cv
+from urllib.request import urlopen
 import socket
 import sys
 import json
 import re
+import matplotlib.pyplot as plt
 import time
 
-cmd_no = 0
+#%% Clear working space
+get_ipython().magic('clear')
+get_ipython().magic('reset -f')
+plt.close('all')
 
+#%% Capture image from camera
+cv.namedWindow('Camera')
+cv.moveWindow('Camera', 0, 0)
+cmd_no = 0
+def capture():
+    global cmd_no
+    cmd_no += 1
+    print(str(cmd_no) + ': capture image')
+    cam = urlopen('http://192.168.4.1/capture')
+    img = cam.read()
+    img = np.asarray(bytearray(img), dtype = 'uint8')
+    img = cv.imdecode(img, cv.IMREAD_UNCHANGED)
+    cv.imshow('Camera', img)
+    # cv.waitKey(1)
+    return img
+
+#%% Send a command and receive a response
 off = [0.007,  0.022,  0.091,  0.012, -0.011, -0.05]
 def cmd(sock, do, what = '', where = '', at = ''):
     global cmd_no
@@ -41,7 +68,6 @@ def cmd(sock, do, what = '', where = '', at = ''):
         msg["N"] = 23
         what = ' off the ground'
     msg_json = json.dumps(msg)
-    print(msg_json)
     print(str(cmd_no) + ': ' + do + what + where + str(at), end = ': ')
     try:
         sock.send(msg_json.encode())
@@ -67,7 +93,23 @@ def cmd(sock, do, what = '', where = '', at = ''):
     print(res)
     return res
 
-# Connect to car's WiFi
+#%% Plot MPU data
+ag = np.empty([0, 6])
+ag_name = ['ax', 'ay', 'az', 'gx', 'gy', 'gz']
+fig = plt.figure()
+mgr = plt.get_current_fig_manager()
+mgr.window.setGeometry(800, 30, 1120, 650) # x, y, dx, dy, valid only for Qt5
+def plt_update(mot):
+    global ag
+    ag = np.vstack((ag, mot))
+    plt.clf()
+    for i in range(6):
+        plt.plot(ag[:,i], label = ag_name[i])
+    plt.legend(loc = 'upper left')
+    plt.pause(0.01)
+    plt.show()
+
+#%% Connect to car's WiFi
 ip = "192.168.4.1"
 port = 100
 print('Connect to {0}:{1}'.format(ip, port))
@@ -79,7 +121,7 @@ except:
     sys.exit()
 print('Connected!')
 
-# Read first data from socket
+#%% Read first data from socket
 print('Receive from {0}:{1}'.format(ip, port))
 try:
     data = car.recv(1024).decode()
@@ -88,21 +130,22 @@ except:
     sys.exit()
 print('Received: ', data)
 
-# Main
+#%% Main
 speed = 150
 ang = [90, 10, 170]
 dist = [0, 0, 0]
 dist_min = 30
 cmd(car, do = 'rotate', at = 90)
-cmd(car, do = 'move', where = 'forward', at = speed)
-time.sleep(1)
 while 1:
     start_time = time.time()
+    # Capture camera image
+    capture()
     # Check if car was lifted off the ground to interrupt the while loop
     if cmd(car, do = 'check'):
         break
     # Get MPU data and plot it
     mot = cmd(car, do = 'measure', what = 'motion')
+    plt_update(mot)
     # Check distance to obstacle
     dist[0] = cmd(car, do = 'measure', what = 'distance')
     if dist[0] <= dist_min:
@@ -130,5 +173,5 @@ while 1:
     cmd(car, do = 'move', where = 'forward', at = speed)
     print("--- %s seconds ---" % (time.time() - start_time))
 
-# Close socket
+#%% Close socket
 car.close()
