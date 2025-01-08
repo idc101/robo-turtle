@@ -9,6 +9,9 @@ import time
 import datetime
 import threading
 import queue
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Car:
     CMD_MotorControl = 1
@@ -24,19 +27,17 @@ class Car:
         self.keep_running = True
         self.commands = queue.Queue()
         self.responses = {}
-        self.start_time = datetime.datetime.now()
-        self.last_time = self.start_time
         self.dist_history = np.array([])
 
     def connect(self):
-        self.log('Connect to {0}:{1}'.format(self.ip, self.port))
+        logger.info('Connect to {0}:{1}'.format(self.ip, self.port))
         self.sock = socket.socket()
         try:
             self.sock.connect((self.ip, self.port))
         except:
-            self.log('Error: ', sys.exc_info()[0])
+            logger.info('Error: ', sys.exc_info()[0])
             sys.exit()
-        self.log('Connected!')
+        logger.info('Connected!')
 
     def start(self):
         self.connect()
@@ -60,7 +61,8 @@ class Car:
                     json_msg = msg_env['msg']
                 else:
                     json_msg = json.dumps(msg_env['msg'])
-                    self.log(f"{msg_env['log']} - {json_msg}")
+                logger.info(f"Sending {msg_env['log']} - {json_msg}")
+                sent_at = datetime.datetime.now()
                 self.sock.send(json_msg.encode())
 
                 # Receive Response - make sure we get a response before sending the next message
@@ -69,11 +71,13 @@ class Car:
                         data = data + self.sock.recv(1024).decode()
                     response = data[0:data.index('}') + 1]
                     data = data[data.index('}') + 1:len(data) - 1]
+                    total_delta = datetime.datetime.now() - sent_at
+                    log_time = int(total_delta.total_seconds() * 1000)
+                    logger.info(f'Received: {response} time={log_time}ms')
                     if msg_env['msg'] != '{Heartbeat}':
-                        self.log(f'Response: {response}')
                         self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
                 except Exception as ex:
-                    self.log(f'Error: {ex}')
+                    logger.info(f'Error: {ex}')
                     sys.exit()
             except queue.Empty:
                 pass
@@ -91,34 +95,42 @@ class Car:
     def send_command(self, description: str, msg: dict):
         self.cmd_no += 1
         msg["H"] = str(self.cmd_no)
+        logger.info(f"Queuing: {description} - {msg}")
         self.commands.put({'log': description, 'msg': msg})
         return self.wait_for_response(self.cmd_no)
 
-    def wait_for_response(self, command_no, timeout = 0.5):
+    def wait_for_response(self, command_no, timeout = 2000):
         start = datetime.datetime.now()
         while command_no not in self.responses:
             time.sleep(0.005)
-            if (datetime.datetime.now() - start).total_seconds() > timeout:
+            time_delta = (datetime.datetime.now() - start)
+            time_since_start = time_delta.total_seconds() * 1000 + time_delta.microseconds / 1000
+            if time_since_start > timeout:
+                logger.info(f"{command_no} timeout {time_since_start}")
                 return None
         result = self.responses.pop(command_no, None)
         return result
 
     def forward(self, distance = 1, speed = 200):
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500}
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500 * distance}
         self.send_command('forward', msg)
+        time.sleep((500.0 * distance) / 1000)
 
     def backward(self, distance = 1, speed = 200):
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500}
+        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500 * distance}
         self.send_command('backward', msg)
+        time.sleep((500.0 * distance) / 1000)
 
     def left(self, angle = 90, speed = 123):
         # 255 / 250ms also turns 90
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
         self.send_command('left', msg)
+        time.sleep((500.0 / 90) * angle / 1000)
 
     def right(self, angle = 90, speed = 123):
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
         self.send_command('right', msg)
+        time.sleep((500.0 / 90) * angle / 1000)
 
     def stop(self):
         msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
@@ -147,12 +159,3 @@ class Car:
         cam = urlopen('http://192.168.4.1/capture')
         img = cam.read()
         return np.asarray(bytearray(img), dtype = 'uint8')
-
-    def log(self, msg):
-        now = datetime.datetime.now()
-        total_delta = now - self.start_time
-        delta = now - self.last_time
-        log_time = int(total_delta.total_seconds() * 1000)
-        delta_time = int(delta.total_seconds() * 1000)
-        self.last_time = now
-        print(f"{log_time} ({delta_time}): {msg}")
