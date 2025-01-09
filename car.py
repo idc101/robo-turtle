@@ -16,8 +16,13 @@ logger = logging.getLogger(__name__)
 class Car:
     CMD_MotorControl = 1
     CMD_CarControl_TimeLimit = 2
+    CMD_CarControl_NoTimeLimit = 3
     CMD_Ultrasonic_Sensor = 21
     CMD_Car_LeaveTheGround = 23
+
+    CAMERA_LEFT = 170
+    CAMERA_RIGHT = 10
+    CAMERA_FORWARD = 90
 
     def __init__(self):
         self.cmd_no = 0
@@ -27,6 +32,7 @@ class Car:
         self.keep_running = True
         self.commands = queue.Queue()
         self.responses = {}
+        self.response_events = {}
         self.dist_history = np.array([])
 
     def connect(self):
@@ -35,7 +41,7 @@ class Car:
         try:
             self.sock.connect((self.ip, self.port))
         except:
-            logger.info('Error: ', sys.exc_info()[0])
+            logger.info('connect error: ', sys.exc_info()[0])
             sys.exit()
         logger.info('Connected!')
 
@@ -66,8 +72,11 @@ class Car:
                     log_time = int(total_delta.total_seconds() * 1000)
                     logger.info(f'Received: {response} time={log_time}ms')
                     self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
+                    event = self.response_events.get(int(msg_env['msg']['H']), None)
+                    if event:
+                        event.set()
             except Exception as ex:
-                logger.info(f'Error: {ex}')
+                logger.info(f'run error', exc_info=ex)
                 sys.exit()
 
             # Send
@@ -85,49 +94,61 @@ class Car:
             return 1
         return re.search('_(.*)}', res).group(1)
     
-    def send_command(self, description: str, msg: dict):
+    def send_command(self, description: str, msg: dict, wait_time: float = 0.05):
         self.cmd_no += 1
-        msg["H"] = str(self.cmd_no)
+        this_cmd_no = self.cmd_no
+        msg["H"] = str(this_cmd_no)
         logger.info(f"Queuing: {description} - {msg}")
+        event = threading.Event()
+        self.response_events[this_cmd_no] = event
         self.commands.put({'log': description, 'msg': msg})
-        return self.wait_for_response(self.cmd_no)
 
-    def wait_for_response(self, command_no, timeout = 2000):
-        start = datetime.datetime.now()
-        while command_no not in self.responses:
-            time.sleep(0.005)
-            time_delta = (datetime.datetime.now() - start)
-            time_since_start = time_delta.total_seconds() * 1000 + time_delta.microseconds / 1000
-            if time_since_start > timeout:
-                logger.info(f"{command_no} timeout {time_since_start}")
-                return None
-        result = self.responses.pop(command_no, None)
+        # Wait for response
+        result = None
+        if event.wait(wait_time):
+            result = self.responses.pop(this_cmd_no, None)
+        else:
+            logger.warning(f"timeout waiting for command {this_cmd_no}")
+        self.response_events.pop(this_cmd_no)
         return result
 
-    def forward(self, distance = 1, speed = 200):
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500 * distance}
-        self.send_command('forward', msg)
-        time.sleep((500.0 * distance) / 1000)
+    def forward(self, distance = None, speed = 150):
+        if distance:
+            msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500 * distance}
+            self.send_command('forward', msg, (500.0 * distance) / 1000)
+        else:
+            msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 3, "D2": speed}
+            self.send_command('forward', msg)
 
-    def backward(self, distance = 1, speed = 200):
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500 * distance}
-        self.send_command('backward', msg)
-        time.sleep((500.0 * distance) / 1000)
+    def backward(self, distance = None, speed = 150):
+        if distance:
+            msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500 * distance}
+            self.send_command('backward', msg, (500.0 * distance) / 1000)
+        else:
+            msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 4, "D2": speed}
+            self.send_command('backward', msg)
 
     def left(self, angle = 90, speed = 123):
         # 255 / 250ms also turns 90
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('left', msg)
-        time.sleep((500.0 / 90) * angle / 1000)
+        self.send_command('left', msg, (500.0 / 90) * angle / 1000)
 
     def right(self, angle = 90, speed = 123):
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('right', msg)
-        time.sleep((500.0 / 90) * angle / 1000)
+        self.send_command('right', msg, (500.0 / 90) * angle / 1000)
 
     def stop(self):
         msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
         self.send_command('stop', msg)
+
+    def rotate_camera_left(self):
+        self.rotate_camera(self.CAMERA_LEFT)
+
+    def rotate_camera_right(self):
+        self.rotate_camera(self.CAMERA_RIGHT)
+
+    def rotate_camera_forward(self):
+        self.rotate_camera(self.CAMERA_FORWARD)
 
     def rotate_camera(self, angle = 150):
         msg = {"N": 5, "D1": 1, "D2": angle}
@@ -135,7 +156,7 @@ class Car:
 
     def measure_dist(self) -> int:
         msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}
-        dist = self.send_command('measure_dist', msg)
+        dist = self.send_command('measure_dist', msg, 2.0)
         if dist:
             dist_int = int(dist)
             self.dist_history = np.append(self.dist_history, [dist_int])
@@ -146,10 +167,8 @@ class Car:
 
     def check_off_ground(self):
         msg = {"N": self.CMD_Car_LeaveTheGround}
-        res = self.send_command('check_off_ground', msg)
-        if res == "true":
-            return True
-        return False
+        res = self.send_command('check_off_ground', msg, 2.0)
+        return res == "true"
 
     def capture_image(self):
         cam = urlopen('http://192.168.4.1/capture')
