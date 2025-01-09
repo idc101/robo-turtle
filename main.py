@@ -2,29 +2,32 @@ import numpy as np
 import time
 from car import Car
 from util import *
-import logging
 
-logging.basicConfig(format='%(asctime)s %(thread)d %(message)s', level=logging.INFO)
-
-import matplotlib
-matplotlib.use("Qt5agg")
-import matplotlib.pyplot as plt
-
-fig = plt.figure()
-mgr = plt.get_current_fig_manager()
-print(mgr)
-plt.show(block=False)
 
 car = Car()
 car.start()
 
-while True:
-    dist = car.measure_dist()
-    print(dist)
-    if dist:
-        plt.clf()
-        plt.plot(car.dist_history)
-        plt_update(mgr)
-    time.sleep(0.3)
+CAMERA_LEFT = 170
+CAMERA_RIGHT = 10
+CAMERA_FORWARD = 90
+
+car.rotate_camera(CAMERA_FORWARD)
+
+while not car.check_off_ground():
+  x = car.measure_dist()
+  print(x)
+  if x and x > 30:
+    car.forward(1)
+  else:
+    car.rotate_camera(CAMERA_LEFT)
+    l = car.measure_dist()
+    car.rotate_camera(CAMERA_RIGHT)
+    r = car.measure_dist()
+    if r > l :
+      car.right(90)
+    else:
+      car.left(90)
+    car.rotate_camera(CAMERA_FORWARD)
+
 
 car.close()

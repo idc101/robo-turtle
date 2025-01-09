@@ -43,8 +43,6 @@ class Car:
         self.connect()
         self.run_thread = threading.Thread(target=self.run)
         self.run_thread.start()
-        self.heartbeat_thread = threading.Thread(target=self.heartbeat, daemon=True)
-        self.heartbeat_thread.start()
     
     def close(self):
         self.keep_running = False
@@ -53,39 +51,34 @@ class Car:
 
     def run(self):
         data = ""
+        sent_at = None
         while self.keep_running:
-            # Send
+            # Receive (we will get sent a heartbeat initially)
             try:
-                msg_env = self.commands.get(block=False, timeout=0.005)
-                if msg_env['msg'] == '{Heartbeat}': # annoyingly not json
-                    json_msg = msg_env['msg']
+                while not '}' in data:
+                    data = data + self.sock.recv(1024).decode()
+                response = data[0:data.index('}') + 1]
+                data = data[data.index('}') + 1:len(data) - 1]
+                if response == '{Heartbeat}':
+                    self.sock.send('{Heartbeat}'.encode())
                 else:
-                    json_msg = json.dumps(msg_env['msg'])
-                logger.info(f"Sending {msg_env['log']} - {json_msg}")
-                sent_at = datetime.datetime.now()
-                self.sock.send(json_msg.encode())
-
-                # Receive Response - make sure we get a response before sending the next message
-                try:
-                    while not '}' in data:
-                        data = data + self.sock.recv(1024).decode()
-                    response = data[0:data.index('}') + 1]
-                    data = data[data.index('}') + 1:len(data) - 1]
                     total_delta = datetime.datetime.now() - sent_at
                     log_time = int(total_delta.total_seconds() * 1000)
                     logger.info(f'Received: {response} time={log_time}ms')
-                    if msg_env['msg'] != '{Heartbeat}':
-                        self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
-                except Exception as ex:
-                    logger.info(f'Error: {ex}')
-                    sys.exit()
+                    self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
+            except Exception as ex:
+                logger.info(f'Error: {ex}')
+                sys.exit()
+
+            # Send
+            try:
+                msg_env = self.commands.get(block=False, timeout=0.005)
+                json_msg = json.dumps(msg_env['msg'])
+                logger.info(f"Sending {msg_env['log']} - {json_msg}")
+                sent_at = datetime.datetime.now()
+                self.sock.send(json_msg.encode())
             except queue.Empty:
                 pass
-
-    def heartbeat(self):
-        while self.keep_running:
-            self.commands.put({'log': 'heartbeat', 'msg': '{Heartbeat}'})
-            time.sleep(0.8)
 
     def process_response(self, res):
         if res == '{Heartbeat}':
@@ -140,7 +133,7 @@ class Car:
         msg = {"N": 5, "D1": 1, "D2": angle}
         self.send_command('rotate_camera', msg)
 
-    def measure_dist(self):
+    def measure_dist(self) -> int:
         msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}
         dist = self.send_command('measure_dist', msg)
         if dist:
@@ -153,7 +146,10 @@ class Car:
 
     def check_off_ground(self):
         msg = {"N": self.CMD_Car_LeaveTheGround}
-        self.send_command('check_off_ground', msg)
+        res = self.send_command('check_off_ground', msg)
+        if res == "true":
+            return True
+        return False
 
     def capture_image(self):
         cam = urlopen('http://192.168.4.1/capture')
