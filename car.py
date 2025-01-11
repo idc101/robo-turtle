@@ -94,7 +94,7 @@ class Car:
             return 1
         return re.search('_(.*)}', res).group(1)
     
-    def send_command(self, description: str, msg: dict, wait_time: float = 0.05):
+    def send_command(self, description: str, msg: dict, wait_time: float = 0.5):
         self.cmd_no += 1
         this_cmd_no = self.cmd_no
         msg["H"] = str(this_cmd_no)
@@ -112,7 +112,7 @@ class Car:
         self.response_events.pop(this_cmd_no)
         return result
 
-    def forward(self, distance = None, speed = 150):
+    def forward(self, distance = None, speed = 100):
         if distance:
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500 * distance}
             self.send_command('forward', msg, (500.0 * distance) / 1000)
@@ -120,7 +120,7 @@ class Car:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 3, "D2": speed}
             self.send_command('forward', msg)
 
-    def backward(self, distance = None, speed = 150):
+    def backward(self, distance = None, speed = 100):
         if distance:
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500 * distance}
             self.send_command('backward', msg, (500.0 * distance) / 1000)
