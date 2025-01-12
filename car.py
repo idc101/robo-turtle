@@ -38,6 +38,7 @@ class Car:
     def connect(self):
         logger.info('Connect to {0}:{1}'.format(self.ip, self.port))
         self.sock = socket.socket()
+        self.sock.setblocking(True)
         try:
             self.sock.connect((self.ip, self.port))
         except:
@@ -47,17 +48,34 @@ class Car:
 
     def start(self):
         self.connect()
-        self.run_thread = threading.Thread(target=self.run)
-        self.run_thread.start()
+        self.send_thread = threading.Thread(target=self.run_send)
+        self.send_thread.start()
+        self.receive_thread = threading.Thread(target=self.run_receive)
+        self.receive_thread.start()
     
     def close(self):
         self.keep_running = False
-        self.run_thread.join()
+        self.send_thread.join()
+        self.receive_thread.join()
         self.sock.close()
 
-    def run(self):
+    def run_send(self):
+        while self.keep_running:
+            try:
+                msg_env = self.commands.get(block=False, timeout=0.005)
+                if (msg_env['msg'] == '{Heartbeat}'):
+                    json_msg = msg_env['msg']
+                else:
+                    json_msg = json.dumps(msg_env['msg'])
+                    logger.info(f"Sending {msg_env['log']} - {json_msg}")
+                msg_env['sent_at'] = datetime.datetime.now()
+                self.sock.send(json_msg.encode())
+            except queue.Empty:
+                pass
+
+    def run_receive(self):
         data = ""
-        sent_at = None
+
         while self.keep_running:
             # Receive (we will get sent a heartbeat initially)
             try:
@@ -65,34 +83,22 @@ class Car:
                     data = data + self.sock.recv(1024).decode()
                 response = data[0:data.index('}') + 1]
                 data = data[data.index('}') + 1:len(data) - 1]
-                if response == '{Heartbeat}':
-                    self.sock.send('{Heartbeat}'.encode())
-                else:
-                    total_delta = datetime.datetime.now() - sent_at
-                    log_time = int(total_delta.total_seconds() * 1000)
-                    logger.info(f'Received: {response} time={log_time}ms')
-                    self.responses[int(msg_env['msg']['H'])] = self.process_response(response)
-                    event = self.response_events.get(int(msg_env['msg']['H']), None)
-                    if event:
-                        event.set()
             except Exception as ex:
                 logger.info(f'run error', exc_info=ex)
-                sys.exit()
 
-            # Send
-            try:
-                msg_env = self.commands.get(block=False, timeout=0.005)
-                json_msg = json.dumps(msg_env['msg'])
-                logger.info(f"Sending {msg_env['log']} - {json_msg}")
-                sent_at = datetime.datetime.now()
-                self.sock.send(json_msg.encode())
-            except queue.Empty:
-                pass
-
-    def process_response(self, res):
-        if res == '{Heartbeat}':
-            return 1
-        return re.search('_(.*)}', res).group(1)
+            if response == '{Heartbeat}':
+                self.commands.put({'log': 'Heartbeat', 'msg': '{Heartbeat}'})
+            else:
+                re_result = re.search('{([^_]+)_(.+)}', response)
+                cmd_no = int(re_result.group(1))
+                res = re_result.group(2)
+                # total_delta = datetime.datetime.now() - sent_at
+                # log_time = int(total_delta.total_seconds() * 1000)
+                logger.info(f'Received: {response}')  #time={log_time}ms
+                self.responses[cmd_no] = res
+                event = self.response_events.get(cmd_no, None)
+                if event:
+                    event.set()
     
     def send_command(self, description: str, msg: dict, wait_time: float = 0.5):
         self.cmd_no += 1
@@ -152,7 +158,7 @@ class Car:
 
     def rotate_camera(self, angle = 150):
         msg = {"N": 5, "D1": 1, "D2": angle}
-        self.send_command('rotate_camera', msg)
+        self.send_command('rotate_camera', msg, 3.0)
 
     def measure_dist(self) -> int:
         msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}
