@@ -100,7 +100,7 @@ class Car:
                 if event:
                     event.set()
     
-    def send_command(self, description: str, msg: dict, wait_time: float = 0.5):
+    def send_command(self, description: str, msg: dict, wait_time: float = 1.0):
         self.cmd_no += 1
         this_cmd_no = self.cmd_no
         msg["H"] = str(this_cmd_no)
@@ -114,7 +114,7 @@ class Car:
         if event.wait(wait_time):
             result = self.responses.pop(this_cmd_no, None)
         else:
-            logger.warning(f"timeout waiting for command {this_cmd_no}")
+            logger.warning(f"timeout waiting for command {this_cmd_no} {description}")
         self.response_events.pop(this_cmd_no)
         return result
 
@@ -137,11 +137,11 @@ class Car:
     def left(self, angle = 90, speed = 123):
         # 255 / 250ms also turns 90
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('left', msg, (500.0 / 90) * angle / 1000)
+        self.send_command('left', msg, ((500.0 / 90) * angle / 1000) + 0.5)
 
     def right(self, angle = 90, speed = 123):
         msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('right', msg, (500.0 / 90) * angle / 1000)
+        self.send_command('right', msg, ((500.0 / 90) * angle / 1000) + 0.5)
 
     def stop(self):
         msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
@@ -180,3 +180,39 @@ class Car:
         cam = urlopen('http://192.168.4.1/capture')
         img = cam.read()
         return np.asarray(bytearray(img), dtype = 'uint8')
+    
+    def find_coloured_shape(self, lower, upper):
+        # Load image and HSV color threshold
+        img = self.capture_image()
+        image = cv2.imdecode(img, cv2.IMREAD_UNCHANGED)
+        original = image.copy()
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        # blur = cv2.medianBlur(image, 5)
+        mask = cv2.inRange(image, lower, upper)
+
+        # Remove noise
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+        opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+        # Find contours and find total area
+        cnts, h = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        area = 0
+        cX = -1
+        cY = -1
+        biggestC = None
+        for c in cnts:
+            tarea = cv2.contourArea(c)
+            if (tarea > area):
+                M = cv2.moments(c)
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                area = tarea
+                biggestC = c
+        
+        # draw the contour and center of the shape on the image
+        if biggestC is not None:
+            cv2.drawContours(original, [biggestC], -1, (0, 255, 0), 2)
+            cv2.circle(original, (cX, cY), 7, (255, 255, 255), -1)
+        return cX, cY, area, original
+
