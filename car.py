@@ -135,14 +135,22 @@ class Car:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 4, "D2": speed}
             self.send_command('backward', msg)
 
-    def left(self, angle = 90, speed = 123):
-        # 255 / 250ms also turns 90
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('left', msg, ((500.0 / 90) * angle / 1000) + 0.5)
+    def left(self, angle = None, speed = 123):
+        if angle:
+            # 255 / 250ms also turns 90
+            msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
+            self.send_command('left', msg, ((500.0 / 90) * angle / 1000) + 0.5)
+        else:
+            msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 1, "D2": speed}
+            self.send_command('left', msg)
 
-    def right(self, angle = 90, speed = 123):
-        msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
-        self.send_command('right', msg, ((500.0 / 90) * angle / 1000) + 0.5)
+    def right(self, angle = None, speed = 123):
+        if angle:
+            msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
+            self.send_command('right', msg, ((500.0 / 90) * angle / 1000) + 0.5)
+        else:
+            msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 2, "D2": speed}
+            self.send_command('right', msg)
 
     def stop(self):
         msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
