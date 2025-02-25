@@ -15,11 +15,13 @@
 
 #include "ArduinoJson-v6.11.1.h" //ArduinoJson
 #include "MPU6050_getdata.h"
+#include "MPU6050.h"
 
 #define _is_print 1
 #define _Test_print 0
 
 ApplicationFunctionSet Application_FunctionSet;
+MPU6050 mpu;
 
 /*Hardware device object list*/
 MPU6050_getdata AppMPU6050getdata;
@@ -82,6 +84,7 @@ enum SmartRobotCarFunctionalModel
   CMD_CarControl_NoTimeLimit,             /*Car Movement Direction Control Without Time Limit*/
   CMD_MotorControl_Speed,                 /*Motor Speed Control*/
   CMD_ServoControl,                       /*Servo Motor Control*/
+  CMD_YawControl,                         /*Yaw Control*/
   CMD_LightingControl_TimeLimit,          /*RGB Lighting Control With Time Limit*/
   CMD_LightingControl_NoTimeLimit,        /*RGB Lighting Control Without Time Limit*/
 
@@ -150,7 +153,7 @@ static bool ApplicationFunctionSet_SmartRobotCarLeaveTheGround(void)
 */
 static void ApplicationFunctionSet_SmartRobotCarLinearMotionControl(SmartRobotCarMotionControl direction, uint8_t directionRecord, uint8_t speed, uint8_t Kp, uint8_t UpperLimit)
 {
-  static float Yaw; //Yaw
+  static float Yaw = 0; //Yaw
   static float yaw_So = 0;
   static uint8_t en = 110;
   static unsigned long is_time;
@@ -158,7 +161,7 @@ static void ApplicationFunctionSet_SmartRobotCarLinearMotionControl(SmartRobotCa
   {
     AppMotor.DeviceDriverSet_Motor_control(/*direction_A*/ direction_void, /*speed_A*/ 0,
                                            /*direction_B*/ direction_void, /*speed_B*/ 0, /*controlED*/ control_enable); //Motor control
-    AppMPU6050getdata.MPU6050_dveGetEulerAngles(&Yaw);
+    //AppMPU6050getdata.MPU6050_dveGetEulerAngles(&Yaw);
     is_time = millis();
   }
   //if (en != directionRecord)
@@ -168,6 +171,7 @@ static void ApplicationFunctionSet_SmartRobotCarLinearMotionControl(SmartRobotCa
     yaw_So = Yaw;
   }
   //Add proportional constant Kp to increase rebound effect
+  Kp = 0;
   int R = (Yaw - yaw_So) * Kp + speed;
   if (R > UpperLimit)
   {
@@ -492,7 +496,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_RGB(void)
             if (et == false)
             {
               setBrightness += 1;
-              if (setBrightness == 100)
+              if (setBrightness == 5)
                 et = true;
             }
             else if (et == true)
@@ -1168,7 +1172,7 @@ void ApplicationFunctionSet::CMD_CarControlTimeLimit_xxx0(uint8_t is_CarDirectio
         {
 
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_ok}");
+          Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
           CarControl_return = true;
         }
@@ -1215,7 +1219,7 @@ void ApplicationFunctionSet::CMD_CarControlTimeLimit_xxx0(void)
         {
 
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_ok}");
+          Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
           CarControl_return = true;
         }
@@ -1337,7 +1341,7 @@ void ApplicationFunctionSet::CMD_MotorControlSpeed_xxx0(void)
 
 /*
   N5:command
-  CMD mode：<servo motor control>
+  CMD mode：<servo motor control> or <cmd yaw control>
 */
 void ApplicationFunctionSet::CMD_ServoControl_xxx0(void)
 {
@@ -1345,6 +1349,39 @@ void ApplicationFunctionSet::CMD_ServoControl_xxx0(void)
   {
     AppServo.DeviceDriverSet_Servo_controls(/*uint8_t Servo*/ CMD_is_Servo, /*unsigned int Position_angle*/ CMD_is_Servo_angle / 10);
     Application_SmartRobotCarxxx0.Functional_Mode = CMD_Programming_mode; /*set mode to programming mode<Waiting for the next set of control commands>*/
+  }
+}
+void ApplicationFunctionSet::CMD_YawControl_xxx0(void)
+{
+  Yaw_prev = Yaw;
+  //AppMPU6050getdata.MPU6050_dveGetEulerAngles(&Yaw);
+  AppMPU6050getdata.MPU6050_data(&VelX, &VelY, &Yaw);
+  //AppMPU6050getdata.MPU6050_data(&Yaw);
+  if (Application_SmartRobotCarxxx0.Functional_Mode == CMD_YawControl)
+  {
+    if (abs(Yaw - Yaw0) > (abs(CMD_is_Yaw) - abs(Yaw - Yaw_prev) - 12)) /* stopping takes 12 deg of extra rotation at speed 100, 22-24 deg at 150, */
+    {
+      ApplicationFunctionSet_SmartRobotCarMotionControl(stop_it, 0);
+      //AppMotor.DeviceDriverSet_Motor_control(direction_void, 0, direction_void, 0, control_enable); //Motor control
+      Application_SmartRobotCarxxx0.Functional_Mode = CMD_Programming_mode; /*set mode to programming mode<Waiting for the next set of control commands>*/
+#if _is_print
+    char toString[50];
+    sprintf(toString, "_%d}", round(Yaw));
+    Serial.println('{' + CommandSerialNumber + toString);   
+    //Serial.println('{' + CommandSerialNumber + "_ok}");
+#endif
+    }
+    else
+    {
+      if (CMD_is_Yaw >= 0)
+      {
+        CMD_CarControl(2, 100);  // turn right
+      }
+      else
+      {
+        CMD_CarControl(1, 100);  // turn left    
+      }
+    }
   }
 }
 /*
@@ -1373,7 +1410,7 @@ void ApplicationFunctionSet::CMD_LightingControlTimeLimit_xxx0(uint8_t is_Lighti
         {
 
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_ok}");
+          Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
           LightingControl_return = true;
         }
@@ -1420,7 +1457,7 @@ void ApplicationFunctionSet::CMD_LightingControlTimeLimit_xxx0(void)
         {
 
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_ok}");
+          Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
           LightingControl_return = true;
         }
@@ -1523,13 +1560,13 @@ void ApplicationFunctionSet::CMD_UltrasoundModuleStatus_xxx0(uint8_t is_get)
     if (true == UltrasoundDetectionStatus)
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_true}");
+      Serial.println('{' + CommandSerialNumber + "_true}");
 #endif
     }
     else
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_false}");
+      Serial.println('{' + CommandSerialNumber + "_false}");
 #endif
     }
   }
@@ -1538,7 +1575,7 @@ void ApplicationFunctionSet::CMD_UltrasoundModuleStatus_xxx0(uint8_t is_get)
     char toString[10];
     sprintf(toString, "%d", UltrasoundData_cm);
 #if _is_print
-    Serial.print('{' + CommandSerialNumber + '_' + toString + '}');
+    Serial.println('{' + CommandSerialNumber + '_' + toString + '}');
 #endif
   }
 }
@@ -1554,19 +1591,19 @@ void ApplicationFunctionSet::CMD_TraceModuleStatus_xxx0(uint8_t is_get)
   {
     sprintf(toString, "%d", TrackingData_L);
 #if _is_print
-    Serial.print('{' + CommandSerialNumber + '_' + toString + '}');
+    Serial.println('{' + CommandSerialNumber + '_' + toString + '}');
 #endif
     /*
     if (true == TrackingDetectionStatus_L)
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_true}");
+      Serial.println('{' + CommandSerialNumber + "_true}");
 #endif
     }
     else
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_false}");
+      Serial.println('{' + CommandSerialNumber + "_false}");
 #endif
     }*/
   }
@@ -1574,19 +1611,19 @@ void ApplicationFunctionSet::CMD_TraceModuleStatus_xxx0(uint8_t is_get)
   {
     sprintf(toString, "%d", TrackingData_M);
 #if _is_print
-    Serial.print('{' + CommandSerialNumber + '_' + toString + '}');
+    Serial.println('{' + CommandSerialNumber + '_' + toString + '}');
 #endif
     /*
     if (true == TrackingDetectionStatus_M)
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_true}");
+      Serial.println('{' + CommandSerialNumber + "_true}");
 #endif
     }
     else
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_false}");
+      Serial.println('{' + CommandSerialNumber + "_false}");
 #endif
     }*/
   }
@@ -1594,19 +1631,19 @@ void ApplicationFunctionSet::CMD_TraceModuleStatus_xxx0(uint8_t is_get)
   {
     sprintf(toString, "%d", TrackingData_R);
 #if _is_print
-    Serial.print('{' + CommandSerialNumber + '_' + toString + '}');
+    Serial.println('{' + CommandSerialNumber + '_' + toString + '}');
 #endif
     /*
         if (true == TrackingDetectionStatus_R)
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_true}");
+      Serial.println('{' + CommandSerialNumber + "_true}");
 #endif
     }
     else
     {
 #if _is_print
-      Serial.print('{' + CommandSerialNumber + "_false}");
+      Serial.println('{' + CommandSerialNumber + "_false}");
 #endif
     }*/
   }
@@ -1770,6 +1807,9 @@ void ApplicationFunctionSet::ApplicationFunctionSet_IRrecv(void)
 /*Data analysis on serial port*/
 void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
 {
+  // int16_t ax, ay, az, gx, gy, gz;
+  // mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz); /* get MPU data */
+  
   static String SerialPortData = "";
   uint8_t c = "";
   if (Serial.available() > 0)
@@ -1803,7 +1843,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
     SerialPortData = "";
     if (error)
     {
-      Serial.println("error:deserializeJson");
+      //Serial.println("error:deserializeJson");
     }
     else if (!error) //Check if the deserialization is successful
     {
@@ -1821,7 +1861,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_MotorDirection = doc["D3"];
 
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1832,7 +1872,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_CarTimer = doc["T"];
         Application_SmartRobotCarxxx0.CMD_CarControl_Millis = millis();
 #if _is_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1841,7 +1881,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_CarDirection = doc["D1"];
         CMD_is_CarSpeed = doc["D2"];
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1850,17 +1890,37 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_MotorSpeed_L = doc["D1"];
         CMD_is_MotorSpeed_R = doc["D2"];
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
       case 5:                                                             /*<Command：N 5> */
-        Application_SmartRobotCarxxx0.Functional_Mode = CMD_ServoControl; /*servo motor control*/
-        CMD_is_Servo = doc["D1"];
-        CMD_is_Servo_angle = doc["D2"];
+        if (doc["D1"] == 1) // rotate head
+        {
+          Application_SmartRobotCarxxx0.Functional_Mode = CMD_ServoControl; /*servo motor control*/
+          CMD_is_Servo = 1;
+          CMD_is_Servo_angle = doc["D2"];
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
+#endif          
+        }
+        else if (doc["D1"] == 2)  // rotate car
+        {
+          Application_SmartRobotCarxxx0.Functional_Mode = CMD_YawControl; /*yaw control*/
+          Yaw0 = Yaw;
+          CMD_is_Yaw = doc["D2"];
+        }
+        break;
+        
+      case 6:                                                             /*<Command：N 6> */
+        int16_t ax, ay, az, gx, gy, gz;
+        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz); /* get MPU data */
+#if _is_print
+        char toString[50];
+        sprintf(toString, "_%d,%d,%d,%d,%d,%d}", ax, ay, az, gx, gy, gz);
+        Serial.println('{' + CommandSerialNumber + toString); 
 #endif
         break;
+        
       case 7:                                                                          /*<Command：N 7> */
         Application_SmartRobotCarxxx0.Functional_Mode = CMD_LightingControl_TimeLimit; /*Lighting control:Time limited mode*/
 
@@ -1871,7 +1931,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_LightingTimer = doc["T"];
         Application_SmartRobotCarxxx0.CMD_LightingControl_Millis = millis();
 #if _is_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1883,21 +1943,21 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         CMD_is_LightingColorValue_G = doc["D3"];
         CMD_is_LightingColorValue_B = doc["D4"];
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
       case 21: /*<Command：N 21>：ultrasonic sensor: detect obstacle distance */
         CMD_UltrasoundModuleStatus_xxx0(doc["D1"]);
 #if _is_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
       case 22: /*<Command：N 22>：IR sensor：for line tracking mode */
         CMD_TraceModuleStatus_xxx0(doc["D1"]);
 #if _is_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1905,13 +1965,13 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         if (true == Car_LeaveTheGround)
         {
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_false}");
+          Serial.println('{' + CommandSerialNumber + "_false}");
 #endif
         }
         else if (false == Car_LeaveTheGround)
         {
 #if _is_print
-          Serial.print('{' + CommandSerialNumber + "_true}");
+          Serial.println('{' + CommandSerialNumber + "_true}");
 #endif
         }
         break;
@@ -1919,14 +1979,14 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
       case 110:                                                                                 /*<Command：N 110> */
         Application_SmartRobotCarxxx0.Functional_Mode = CMD_ClearAllFunctions_Programming_mode; /*Clear all function:Enter programming mode*/
 #if _is_print
-        Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
       case 100:                                                                             /*<Command：N 100> */
         Application_SmartRobotCarxxx0.Functional_Mode = CMD_ClearAllFunctions_Standby_mode; /*Clear all function:Enter standby mode*/
 #if _is_print
-        Serial.print("{ok}");
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        Serial.println("{\"N\":100}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
@@ -1946,12 +2006,12 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
 
 #if _is_print
         Serial.print("{ok}");
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 
       case 105: /*<Command：N 105> :FastLED brightness adjustment control command*/
-        if (1 == doc["D1"] && (CMD_is_FastLED_setBrightness < 250))
+        if (1 == doc["D1"] && (CMD_is_FastLED_setBrightness < 5))
         {
           CMD_is_FastLED_setBrightness += 5;
         }
@@ -1962,7 +2022,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
         FastLED.setBrightness(CMD_is_FastLED_setBrightness);
 
 #if _Test_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
         Serial.print("{ok}");
 #endif
         break;
@@ -1976,15 +2036,14 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
       }
 
 #if _is_print
-        //Serial.print('{' + CommandSerialNumber + "_ok}");
+        //Serial.println('{' + CommandSerialNumber + "_ok}");
         Serial.print("{ok}");
 #endif
         break;
       case 102: /*<Command：N 102> :Rocker control mode command*/
         Application_SmartRobotCarxxx0.Functional_Mode = Rocker_mode;
         Rocker_temp = doc["D1"];
-        Rocker_CarSpeed = doc["D2"];
-        
+
         switch (Rocker_temp)
         {
         case 1:
@@ -2020,7 +2079,7 @@ void ApplicationFunctionSet::ApplicationFunctionSet_SerialPortDataAnalysis(void)
           break;
         }
 #if _is_print
-        // Serial.print('{' + CommandSerialNumber + "_ok}");
+        // Serial.println('{' + CommandSerialNumber + "_ok}");
 #endif
         break;
 

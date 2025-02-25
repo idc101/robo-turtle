@@ -17,6 +17,7 @@ class Car:
     CMD_MotorControl = 1
     CMD_CarControl_TimeLimit = 2
     CMD_CarControl_NoTimeLimit = 3
+    CMD_MPU_Sensor = 6
     CMD_Ultrasonic_Sensor = 21
     CMD_Car_LeaveTheGround = 23
 
@@ -159,6 +160,10 @@ class Car:
     def rotate_camera(self, angle = 150):
         msg = {"N": 5, "D1": 1, "D2": angle}
         self.send_command('rotate_camera', msg, 3.0)
+
+    def measure_mpu(self):
+        msg = {"N": self.CMD_MPU_Sensor}
+        return self.send_command('measure_mpu', msg, 2.0)
 
     def measure_dist(self) -> int:
         msg = {"N": self.CMD_Ultrasonic_Sensor, "D1": 2}

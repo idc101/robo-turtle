@@ -44,6 +44,7 @@ public: /*CMD*/
   void CMD_MotorControlSpeed_xxx0(void);
   void CMD_MotorControlSpeed_xxx0(uint8_t is_Speed_L, uint8_t is_Speed_R);
   void CMD_ServoControl_xxx0(void);
+  void CMD_YawControl_xxx0(void);
   void CMD_VoiceControl_xxx0(uint16_t is_VoiceName, uint32_t is_VoiceTimer);
   void CMD_LightingControlTimeLimit_xxx0(void);
   void CMD_LightingControlTimeLimit_xxx0(uint8_t is_LightingSequence, uint8_t is_LightingColorValue_R, uint8_t is_LightingColorValue_G, uint8_t is_LightingColorValue_B, uint32_t is_LightingTimer);
@@ -99,6 +100,9 @@ public:
   uint8_t CMD_is_CarDirection; //car
   uint8_t CMD_is_CarSpeed;
   uint32_t CMD_is_CarTimer;
+  int CMD_is_Yaw;
+  float Yaw, Yaw0, Yaw_prev;
+  float VelX, VelY;  
 
 public:
   uint8_t CMD_is_MotorSpeed_L; //motor
@@ -112,7 +116,9 @@ public:
   uint32_t CMD_is_LightingTimer;
 
 private:
-  uint8_t CMD_is_FastLED_setBrightness = 20;
+  uint8_t CMD_is_FastLED_setBrightness = 5;
+  // uint8_t Cnt = 0;
+  // uint16_t Mot[200];
 };
 extern ApplicationFunctionSet Application_FunctionSet;
 #endif
