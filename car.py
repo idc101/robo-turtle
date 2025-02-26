@@ -5,7 +5,6 @@ import re
 import numpy as np
 import cv2
 from urllib.request import urlopen
-import time
 import datetime
 import threading
 import queue
@@ -20,6 +19,7 @@ class Car:
     CMD_MPU_Sensor = 6
     CMD_Ultrasonic_Sensor = 21
     CMD_Car_LeaveTheGround = 23
+    CMD_RockerMode = 102
 
     CAMERA_LEFT = 170
     CAMERA_RIGHT = 10
@@ -63,7 +63,7 @@ class Car:
     def run_send(self):
         while self.keep_running:
             try:
-                msg_env = self.commands.get(block=False, timeout=0.005)
+                msg_env = self.commands.get(block=True, timeout=None)
                 if (msg_env['msg'] == '{Heartbeat}'):
                     json_msg = msg_env['msg']
                 else:
@@ -107,54 +107,92 @@ class Car:
         msg["H"] = str(this_cmd_no)
         logger.info(f"Queuing: {description} - {msg}")
         event = threading.Event()
-        self.response_events[this_cmd_no] = event
+        if wait_time:
+            self.response_events[this_cmd_no] = event
         self.commands.put({'log': description, 'msg': msg})
 
         # Wait for response
         result = None
-        if event.wait(wait_time):
-            result = self.responses.pop(this_cmd_no, None)
-        else:
-            logger.warning(f"timeout waiting for command {this_cmd_no} {description}")
-        self.response_events.pop(this_cmd_no)
+        if wait_time:
+            if event.wait(wait_time):
+                result = self.responses.pop(this_cmd_no, None)
+            else:
+                logger.warning(f"timeout waiting for command {this_cmd_no} {description}")
+            self.response_events.pop(this_cmd_no)
         return result
 
-    def forward(self, distance = None, speed = 100):
+    def forward(self, distance = None, speed = None):
         if distance:
+            if speed == None:
+                speed = 150
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 3, "D2": speed, "T": 500 * distance}
             self.send_command('forward', msg, (500.0 * distance) / 1000)
-        else:
+        elif speed:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 3, "D2": speed}
-            self.send_command('forward', msg)
+            self.send_command('forward', msg, None)
+        else:
+            msg = {"N": self.CMD_RockerMode, "D1": 1}
+            self.send_command('forward', msg, None)
 
-    def backward(self, distance = None, speed = 100):
+    def backward(self, distance = None, speed = None):
         if distance:
+            if speed == None:
+                speed = 150
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 4, "D2": speed, "T": 500 * distance}
             self.send_command('backward', msg, (500.0 * distance) / 1000)
-        else:
+        elif speed:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 4, "D2": speed}
-            self.send_command('backward', msg)
+            self.send_command('backward', msg, None)
+        else:
+            msg = {"N": self.CMD_RockerMode, "D1": 2}
+            self.send_command('forward', msg, None)
 
-    def left(self, angle = None, speed = 123):
+    def left(self, angle = None, speed = None):
         if angle:
+            if speed == None:
+                speed = 123
             # 255 / 250ms also turns 90
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 1, "D2": speed, "T": int((500.0 / 90) * angle)}
             self.send_command('left', msg, ((500.0 / 90) * angle / 1000) + 0.5)
-        else:
+        elif speed:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 1, "D2": speed}
-            self.send_command('left', msg)
+            self.send_command('left', msg, None)
+        else:
+            msg = {"N": self.CMD_RockerMode, "D1": 3}
+            self.send_command('left', msg, None)
 
-    def right(self, angle = None, speed = 123):
+    def right(self, angle = None, speed = None):
         if angle:
+            if speed == None:
+                speed = 123
             msg = {"N": self.CMD_CarControl_TimeLimit, "D1": 2, "D2": speed, "T": int((500.0 / 90) * angle)}
             self.send_command('right', msg, ((500.0 / 90) * angle / 1000) + 0.5)
-        else:
+        elif speed:
             msg = {"N": self.CMD_CarControl_NoTimeLimit, "D1": 2, "D2": speed}
-            self.send_command('right', msg)
+            self.send_command('right', msg, None)
+        else:
+            msg = {"N": self.CMD_RockerMode, "D1": 4}
+            self.send_command('right', msg, None)
+
+    def left_forward(self):
+        msg = {"N": self.CMD_RockerMode, "D1": 5}
+        self.send_command('left_forward', msg, None)
+
+    def left_backward(self):
+        msg = {"N": self.CMD_RockerMode, "D1": 6}
+        self.send_command('left_backward', msg, None)
+
+    def right_forward(self):
+        msg = {"N": self.CMD_RockerMode, "D1": 7}
+        self.send_command('right_forward', msg, None)
+
+    def right_backward(self):
+        msg = {"N": self.CMD_RockerMode, "D1": 8}
+        self.send_command('right_backward', msg, None)
 
     def stop(self):
         msg = {"N": self.CMD_MotorControl, "D1": 0, "D2": 0, "D3": 1}
-        self.send_command('stop', msg)
+        self.send_command('stop', msg, None)
 
     def rotate_camera_left(self):
         self.rotate_camera(self.CAMERA_LEFT)

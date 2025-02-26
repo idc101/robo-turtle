@@ -1,6 +1,5 @@
 numpy
 matplotlib
 opencv-python
-pynput
 PyQt5
 pygame

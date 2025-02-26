@@ -1,0 +1,45 @@
+from pynput import keyboard
+
+
+
+
+print("start")
+stop = False
+
+def on_release(key):
+    global stop
+    stop = True
+    # Stop listener
+    return False
+
+listener = keyboard.Listener(on_release=on_release)
+listener.start()
+
+# cv2.namedWindow('Camera')
+# cv2.waitKey(0)  # Wait for a key press
+
+
+
+data = np.array([])
+plt.show(block=False)
+
+
+logging.basicConfig(format='%(asctime)s %(thread)d %(message)s', level=logging.INFO)
+
+import matplotlib
+matplotlib.use("Qt5agg")
+import matplotlib.pyplot as plt
+
+fig = plt.figure()
+mgr = plt.get_current_fig_manager()
+print(mgr)
+plt.show(block=False)
+
+
+    if dist:
+        plt.clf()
+        plt.plot(car.dist_history)
+        plt_update(mgr)
+
+# cv2.destroyAllWindows()  # Close all OpenCV windows
+plt.close('all')
